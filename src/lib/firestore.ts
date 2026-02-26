@@ -17,10 +17,37 @@ export type BillStatus = "unpaid" | "paid";
 
 export type BillRecurrence = "monthly" | null;
 
+export const BILL_CATEGORIES = [
+  "Subscriptions",
+  "Utilities",
+  "Housing",
+  "Insurance",
+  "Debt",
+  "Other",
+  "Uncategorized",
+] as const;
+
+export type BillCategory = (typeof BILL_CATEGORIES)[number];
+
+export function normalizeBillCategory(
+  category: string | null | undefined,
+  fallback: BillCategory = "Uncategorized",
+): BillCategory {
+  const trimmedCategory = typeof category === "string" ? category.trim() : "";
+  if ((BILL_CATEGORIES as readonly string[]).includes(trimmedCategory)) {
+    return trimmedCategory as BillCategory;
+  }
+
+  return fallback;
+}
+
 export type OneTimeBillInput = {
   name: string;
   amount: number;
   dueDate: string;
+  autopay: boolean;
+  accountLast4: string | null;
+  category?: string | null;
 };
 
 export type RecurringBillInput = {
@@ -28,6 +55,9 @@ export type RecurringBillInput = {
   amount: number;
   recurrence: "monthly";
   dayOfMonth: number;
+  autopay: boolean;
+  accountLast4: string | null;
+  category?: string | null;
 };
 
 export type BillInput = OneTimeBillInput | RecurringBillInput;
@@ -41,6 +71,9 @@ export type BillListItem = {
   recurrence?: BillRecurrence;
   dayOfMonth?: number | null;
   paidForMonth?: string | null;
+  autopay?: boolean;
+  accountLast4?: string | null;
+  category?: string | null;
 };
 
 function isRecurringBillInput(bill: BillInput): bill is RecurringBillInput {
@@ -166,9 +199,14 @@ export function listenToUserFamilyId(uid: string, onChange: (familyId: string | 
 
 export async function addBill(familyId: string, uid: string, bill: BillInput) {
   const billsRef = collection(db, "families", familyId, "bills");
+  const normalizedAccountLast4 = typeof bill.accountLast4 === "string" ? bill.accountLast4.trim() : "";
+  const normalizedCategory = normalizeBillCategory(bill.category, "Subscriptions");
   const commonFields = {
     name: bill.name,
     amount: bill.amount,
+    autopay: bill.autopay === true,
+    accountLast4: /^\d{4}$/.test(normalizedAccountLast4) ? normalizedAccountLast4 : null,
+    category: normalizedCategory,
     createdAt: serverTimestamp(),
     createdBy: uid,
   };
@@ -244,6 +282,9 @@ export function listenToBills(familyId: string, onChange: (bills: BillListItem[]
       const rawRecurrence = data?.recurrence;
       const rawDayOfMonth = data?.dayOfMonth;
       const rawPaidForMonth = data?.paidForMonth;
+      const rawAutopay = data?.autopay;
+      const rawAccountLast4 = data?.accountLast4;
+      const rawCategory = data?.category;
 
       const status: BillStatus = rawStatus === "paid" ? "paid" : "unpaid";
       const recurrence: BillRecurrence = rawRecurrence === "monthly" ? "monthly" : null;
@@ -252,6 +293,9 @@ export function listenToBills(familyId: string, onChange: (bills: BillListItem[]
           ? rawDayOfMonth
           : null;
       const paidForMonth = typeof rawPaidForMonth === "string" || rawPaidForMonth === null ? rawPaidForMonth : null;
+      const autopay = typeof rawAutopay === "boolean" ? rawAutopay : undefined;
+      const accountLast4 = typeof rawAccountLast4 === "string" && /^\d{4}$/.test(rawAccountLast4) ? rawAccountLast4 : null;
+      const category = normalizeBillCategory(typeof rawCategory === "string" ? rawCategory : null, "Uncategorized");
 
       return {
         id: billDoc.id,
@@ -262,6 +306,9 @@ export function listenToBills(familyId: string, onChange: (bills: BillListItem[]
         recurrence,
         dayOfMonth,
         paidForMonth,
+        autopay,
+        accountLast4,
+        category,
       };
     });
 

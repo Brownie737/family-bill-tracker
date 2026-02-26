@@ -64,6 +64,61 @@ body {
   gap: 16px;
 }
 
+.surfaceCard {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.cardHeading {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.autopayToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.autopayToggleLabel {
+  display: block;
+  font-weight: 600;
+}
+
+.autopayToggleHelpText {
+  margin-top: 4px;
+  font-size: 0.83rem;
+  color: #475569;
+}
+
+.autopayToggleCheckbox {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.billAccountLast4Input {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
 .tabsBar {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -94,11 +149,12 @@ body {
 
 .calendarShell {
   border: 1px solid #dbe3ec;
-  border-radius: 12px;
+  border-radius: 14px;
   background: #ffffff;
-  padding: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .calendarHeader {
@@ -202,14 +258,16 @@ body {
 
 .topBarTitle {
   margin: 0;
-  font-size: 1.1rem;
-  line-height: 1.2;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .topBarSubtitle {
-  margin: 2px 0 0;
-  font-size: 0.8rem;
-  color: #475569;
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
 }
 
 .avatarMenuRoot {
@@ -437,6 +495,328 @@ body {
   cursor: not-allowed;
 }
 
+.billsCard {
+  display: grid;
+  gap: 12px;
+}
+
+.billsHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.billsHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.billsTitle {
+  margin: 0;
+}
+
+.billsFilterPill {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #d4dbe5;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.billsFilterPill:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.billsMenuRoot {
+  position: relative;
+}
+
+.billsMenuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.billsMenuButton:focus-visible,
+.billsMenuItem:focus-visible,
+.billDeleteCheckbox:focus-visible,
+.billFormInput:focus-visible,
+.billFormSubmitBtn:focus-visible,
+.billsDeleteConfirmBtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.billsMenuPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.billsMenuItem {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid #eef2f7;
+  background: #ffffff;
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.billsMenuItem:last-child {
+  border-bottom: 0;
+}
+
+.billsMenuItemDanger {
+  color: #b42318;
+}
+
+.billsDeleteToolbar {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #f1d2d2;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff5f5;
+}
+
+.billsDeleteToolbarLabel {
+  font-weight: 600;
+  color: #7f1d1d;
+}
+
+.billsDeleteToolbarActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.billsDeleteConfirmBtn {
+  min-height: 44px;
+  border: 1px solid #b91c1c;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #ffffff;
+  font-weight: 700;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.billsDeleteConfirmBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.billRowContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.billRowMain {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.billRowDetails {
+  display: grid;
+  gap: 2px;
+}
+
+.billAmount {
+  font-weight: 600;
+}
+
+.billDueText {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.billRowActions {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.billStatusBtn {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.billStatusBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.billList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.billListItem {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.summaryGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.summaryMetricCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.summaryMetricLabel {
+  margin-bottom: 4px;
+  font-size: 0.81rem;
+  color: #64748b;
+}
+
+.summaryMetricValue {
+  font-weight: 700;
+}
+
+.billMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.billMetaTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border: 1px solid #dbe3ec;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+}
+
+.billMetaText {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.billDeleteCheckboxWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-height: 44px;
+}
+
+.billDeleteCheckbox {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.addBillSheet {
+  max-height: min(82vh, 760px);
+}
+
+.addBillSheetBody {
+  padding: 12px;
+  overflow: auto;
+}
+
+.addBillForm {
+  display: grid;
+  gap: 10px;
+}
+
+.billFormFieldLabel {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.billFormInput {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  font-weight: 400;
+}
+
+.billFormSubmitBtn {
+  min-height: 44px;
+  border: 1px solid #2563eb;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 700;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.billFormSubmitBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.billFormError {
+  margin: 0;
+  color: #b42318;
+}
+
 @media (min-width: 768px) {
   .topBar {
     padding: 14px 0;
@@ -447,13 +827,40 @@ body {
   }
 
   .appMain {
+    gap: 20px;
     padding: 20px 24px 24px;
+  }
+
+  .dashboardStack {
+    gap: 20px;
+  }
+
+  .surfaceCard,
+  .calendarShell {
+    padding: 18px;
+  }
+
+  .cardHeading {
+    font-size: 1.35rem;
+  }
+
+  .topBarTitle {
+    font-size: 1.6rem;
+  }
+
+  .topBarSubtitle {
+    font-size: 0.8rem;
   }
 
   .avatarMenuPanel {
     top: 74px;
     left: auto;
     width: min(420px, calc(100vw - 32px));
+  }
+
+  .billsDeleteToolbar {
+    grid-template-columns: 1fr auto;
+    align-items: center;
   }
 }
 

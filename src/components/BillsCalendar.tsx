@@ -343,11 +343,21 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
                 selectedDayEvents.map((event) => {
                   const nextActionLabel = event.status === "paid" ? "Mark unpaid" : "Mark paid";
                   const isBusy = statusBusyBillId === event.bill.id;
+                  const hasAutopayMeta = event.bill.autopay === true;
+                  const hasAccountLast4Meta =
+                    typeof event.bill.accountLast4 === "string" && /^\d{4}$/.test(event.bill.accountLast4);
+                  const hasMetadata = hasAutopayMeta || hasAccountLast4Meta;
                   return (
                     <li key={`${event.billId}-${event.dayOfMonth}-${event.label}`} className="sheetRow">
                       <div>
                         <div style={{ fontWeight: 700 }}>{event.name}</div>
                         <div style={{ fontSize: "0.92rem", color: "#334155" }}>{formatCurrency(event.amount)}</div>
+                        {hasMetadata ? (
+                          <div className="billMeta">
+                            {hasAutopayMeta ? <span className="billMetaTag">Autopay</span> : null}
+                            {hasAccountLast4Meta ? <span className="billMetaText">••••{event.bill.accountLast4}</span> : null}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div style={{ display: "grid", justifyItems: "end", gap: 8 }}>

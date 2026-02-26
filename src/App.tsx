@@ -1,23 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
+import { deleteDoc, doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import type { User } from "firebase/auth";
-import { auth } from "./lib/firebase";
+import { auth, db } from "./lib/firebase";
 import {
   addBill,
+  BILL_CATEGORIES,
   createFamilyForUser,
   ensureUserDoc,
   joinFamily,
   listenToBills,
+  normalizeBillCategory,
   listenToUserFamilyId,
   toggleBillStatus,
 } from "./lib/firestore";
-import type { BillListItem } from "./lib/firestore";
+import type { BillCategory, BillListItem } from "./lib/firestore";
 import AvatarMenu from "./components/AvatarMenu";
+import AddBillForm from "./components/AddBillForm";
 import BillsCalendar from "./components/BillsCalendar";
 
 export default function App() {
@@ -37,13 +41,24 @@ export default function App() {
   const [billName, setBillName] = useState("");
   const [billAmount, setBillAmount] = useState("");
   const [billType, setBillType] = useState<"one-time" | "monthly">("one-time");
+  const [billCategory, setBillCategory] = useState<BillCategory>("Subscriptions");
   const [billDueDate, setBillDueDate] = useState("");
   const [billDayOfMonth, setBillDayOfMonth] = useState("1");
+  const [autopay, setAutopay] = useState(true);
+  const [accountLast4, setAccountLast4] = useState("");
   const [billError, setBillError] = useState<string | null>(null);
   const [billBusy, setBillBusy] = useState(false);
   const [bills, setBills] = useState<BillListItem[]>([]);
   const [statusBusyBillId, setStatusBusyBillId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "calendar">("summary");
+  const [isBillsMenuOpen, setIsBillsMenuOpen] = useState(false);
+  const [isAddBillModalOpen, setIsAddBillModalOpen] = useState(false);
+  const [billsCategoryFilter, setBillsCategoryFilter] = useState<string>("All");
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const autopayProcessedKeysRef = useRef<Set<string>>(new Set());
+  const billsMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
@@ -56,6 +71,11 @@ export default function App() {
       setCreatedFamilyId(null);
       setJoinFamilyId("");
       setBills([]);
+      setIsBillsMenuOpen(false);
+      setIsAddBillModalOpen(false);
+      setIsDeleteMode(false);
+      setSelectedBillIds(new Set());
+      setBillCategory("Subscriptions");
       return;
     }
 
@@ -89,6 +109,8 @@ export default function App() {
   useEffect(() => {
     if (!familyId) {
       setBills([]);
+      setIsDeleteMode(false);
+      setSelectedBillIds(new Set());
       return;
     }
 
@@ -98,6 +120,83 @@ export default function App() {
 
     return () => unsub();
   }, [familyId]);
+
+  useEffect(() => {
+    if (!isBillsMenuOpen) {
+      return;
+    }
+
+    const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (!billsMenuRef.current?.contains(target)) {
+        setIsBillsMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("touchstart", handleOutsideClick);
+
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [isBillsMenuOpen]);
+
+  useEffect(() => {
+    if (!isBillsMenuOpen && !isAddBillModalOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setIsBillsMenuOpen(false);
+      setIsAddBillModalOpen(false);
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isAddBillModalOpen, isBillsMenuOpen]);
+
+  useEffect(() => {
+    if (activeTab !== "calendar") {
+      return;
+    }
+
+    setIsBillsMenuOpen(false);
+    setIsDeleteMode(false);
+    setSelectedBillIds(new Set());
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedBillIds.size === 0) {
+      return;
+    }
+
+    const validBillIds = new Set(bills.map((bill) => bill.id));
+    setSelectedBillIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      prev.forEach((id) => {
+        if (validBillIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+  }, [bills, selectedBillIds.size]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -187,6 +286,14 @@ export default function App() {
       return;
     }
 
+    const normalizedLast4 = accountLast4.replace(/\D/g, "");
+    const normalizedLast4OrNull = normalizedLast4.length === 0 ? null : normalizedLast4;
+    const normalizedCategory = normalizeBillCategory(billCategory, "Subscriptions");
+    if (normalizedLast4OrNull !== null && normalizedLast4OrNull.length !== 4) {
+      setBillError("Account Last 4 must be exactly 4 digits");
+      return;
+    }
+
     setBillError(null);
     setBillBusy(true);
     try {
@@ -202,24 +309,96 @@ export default function App() {
           amount,
           recurrence: "monthly",
           dayOfMonth,
+          category: normalizedCategory,
+          autopay,
+          accountLast4: normalizedLast4OrNull,
         });
       } else {
         await addBill(familyId, user.uid, {
           name,
           amount,
           dueDate: billDueDate.trim(),
+          category: normalizedCategory,
+          autopay,
+          accountLast4: normalizedLast4OrNull,
         });
       }
 
       setBillName("");
       setBillAmount("");
+      setBillCategory("Subscriptions");
       setBillDueDate("");
       setBillDayOfMonth("1");
+      setAutopay(true);
+      setAccountLast4("");
+      setIsAddBillModalOpen(false);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to add bill";
       setBillError(message);
     } finally {
       setBillBusy(false);
+    }
+  }
+
+  function handleOpenAddBillModal() {
+    setIsBillsMenuOpen(false);
+    setIsDeleteMode(false);
+    setSelectedBillIds(new Set());
+    setBillCategory("Subscriptions");
+    setIsAddBillModalOpen(true);
+  }
+
+  function handleEnterDeleteMode() {
+    setIsBillsMenuOpen(false);
+    setIsAddBillModalOpen(false);
+    setIsDeleteMode(true);
+    setSelectedBillIds(new Set());
+  }
+
+  function handleCancelDeleteMode() {
+    setIsDeleteMode(false);
+    setSelectedBillIds(new Set());
+  }
+
+  function handleDeleteSelectionChange(billId: string, checked: boolean) {
+    setSelectedBillIds((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(billId);
+      } else {
+        next.delete(billId);
+      }
+      return next;
+    });
+  }
+
+  async function handleDeleteSelectedBills() {
+    if (!familyId || selectedBillIds.size === 0) {
+      return;
+    }
+
+    const idsToDelete = [...selectedBillIds];
+    const selectedBills = bills.filter((bill) => selectedBillIds.has(bill.id));
+    const confirmationMessage =
+      idsToDelete.length === 1
+        ? `Delete '${selectedBills[0]?.name ?? ""}'?`
+        : `Delete ${idsToDelete.length} bills?`;
+
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    setBillError(null);
+    setDeleteBusy(true);
+    try {
+      await Promise.all(idsToDelete.map((billId) => deleteDoc(doc(db, "families", familyId, "bills", billId))));
+      setIsDeleteMode(false);
+      setSelectedBillIds(new Set());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete selected bills";
+      setBillError(message);
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -319,6 +498,94 @@ export default function App() {
 
   const todayStart = startOfDay(now);
 
+  useEffect(() => {
+    autopayProcessedKeysRef.current.clear();
+  }, [familyId]);
+
+  useEffect(() => {
+    if (!familyId || bills.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runAutopay = async () => {
+      const processedKeys = autopayProcessedKeysRef.current;
+
+      for (const bill of bills) {
+        if (cancelled) {
+          return;
+        }
+
+        if (bill.autopay !== true) {
+          continue;
+        }
+
+        if (bill.recurrence === "monthly") {
+          if (bill.paidForMonth === currentYYYYMM) {
+            continue;
+          }
+
+          const recurringDueDate = getRecurringDueDateInCurrentMonth(bill.dayOfMonth);
+          if (!recurringDueDate || startOfDay(recurringDueDate).getTime() > todayStart.getTime()) {
+            continue;
+          }
+
+          const recurringKey = `${bill.id}:${currentYYYYMM}`;
+          if (processedKeys.has(recurringKey)) {
+            continue;
+          }
+
+          const billRef = doc(db, "families", familyId, "bills", bill.id);
+          try {
+            await updateDoc(billRef, {
+              paidForMonth: currentYYYYMM,
+              updatedAt: serverTimestamp(),
+            });
+          } catch {
+            // Intentionally ignored. Key is still marked to prevent write loops.
+          } finally {
+            processedKeys.add(recurringKey);
+          }
+
+          continue;
+        }
+
+        if (bill.status === "paid" || !bill.dueDate) {
+          continue;
+        }
+
+        const oneTimeDueDate = parseYYYYMMDD(bill.dueDate);
+        if (!oneTimeDueDate || startOfDay(oneTimeDueDate).getTime() > todayStart.getTime()) {
+          continue;
+        }
+
+        const oneTimeKey = `${bill.id}:${bill.dueDate}`;
+        if (processedKeys.has(oneTimeKey)) {
+          continue;
+        }
+
+        const billRef = doc(db, "families", familyId, "bills", bill.id);
+        try {
+          await updateDoc(billRef, {
+            status: "paid",
+            updatedAt: serverTimestamp(),
+          });
+        } catch {
+          // Intentionally ignored. Key is still marked to prevent write loops.
+        } finally {
+          processedKeys.add(oneTimeKey);
+        }
+      }
+    };
+
+    void runAutopay();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [familyId, bills]);
+
   const isOverdue = (bill: BillListItem) => {
     if (getDerivedStatus(bill) !== "unpaid") {
       return false;
@@ -360,54 +627,55 @@ export default function App() {
     return a.name.localeCompare(b.name);
   });
 
-  const isDueThisMonth = (dueDate: string | null | undefined) => {
-    if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-      return false;
+  const visibleBills = sortedBills.filter((bill) => {
+    const cat = bill.category?.trim() ? bill.category : "Uncategorized";
+    if (billsCategoryFilter !== "All") {
+      return cat === billsCategoryFilter;
     }
 
-    const [y, m, d] = dueDate.split("-").map(Number);
-    const dt = new Date(y, m - 1, d);
+    return true;
+  });
 
-    if (
-      !Number.isInteger(y) ||
-      !Number.isInteger(m) ||
-      !Number.isInteger(d) ||
-      dt.getFullYear() !== y ||
-      dt.getMonth() !== m - 1 ||
-      dt.getDate() !== d
-    ) {
-      return false;
-    }
+  const { dueThisMonthTotal, paidThisMonthTotal, overdueTotal } = bills.reduce(
+    (totals, bill) => {
+      const isRecurring = bill.recurrence === "monthly";
+      const recurringDueDate = isRecurring ? getRecurringDueDateInCurrentMonth(bill.dayOfMonth) : null;
+      const oneTimeDueDate = !isRecurring && bill.dueDate ? parseYYYYMMDD(bill.dueDate) : null;
+      const oneTimeIsCurrentMonth =
+        oneTimeDueDate !== null &&
+        oneTimeDueDate.getMonth() === nowMonth &&
+        oneTimeDueDate.getFullYear() === nowYear;
 
-    return dt.getMonth() === nowMonth && dt.getFullYear() === nowYear;
-  };
+      if (isRecurring) {
+        if (recurringDueDate) {
+          totals.dueThisMonthTotal += bill.amount;
+        }
 
-  const unpaidTotal = sortedBills.reduce(
-    (total, bill) => (getDerivedStatus(bill) === "unpaid" ? total + bill.amount : total),
-    0,
-  );
+        if (bill.paidForMonth === currentYYYYMM) {
+          totals.paidThisMonthTotal += bill.amount;
+        }
+      } else if (oneTimeIsCurrentMonth) {
+        totals.dueThisMonthTotal += bill.amount;
 
-  const paidTotal = sortedBills.reduce(
-    (total, bill) => (getDerivedStatus(bill) === "paid" ? total + bill.amount : total),
-    0,
-  );
-
-  const dueThisMonthTotal = sortedBills.reduce(
-    (total, bill) => {
-      if (getDerivedStatus(bill) !== "unpaid") {
-        return total;
+        if (bill.status === "paid") {
+          totals.paidThisMonthTotal += bill.amount;
+        }
       }
 
-      if (bill.recurrence === "monthly") {
-        return total + bill.amount;
+      if (isOverdue(bill)) {
+        totals.overdueTotal += bill.amount;
       }
 
-      return isDueThisMonth(bill.dueDate) ? total + bill.amount : total;
+      return totals;
     },
-    0,
+    {
+      dueThisMonthTotal: 0,
+      paidThisMonthTotal: 0,
+      overdueTotal: 0,
+    },
   );
 
-  const overdueTotal = sortedBills.reduce((total, bill) => (isOverdue(bill) ? total + bill.amount : total), 0);
+  const remainingThisMonthTotal = Math.max(0, dueThisMonthTotal - paidThisMonthTotal);
 
   if (user) {
     return (
@@ -424,8 +692,8 @@ export default function App() {
 
         <main className="appMain">
           {!familyId ? (
-            <section style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-            <h2 style={{ marginTop: 0 }}>Family Setup</h2>
+            <section className="surfaceCard">
+              <h2 className="cardHeading">Family Setup</h2>
 
             <button onClick={handleCreateFamily} disabled={familyBusy} style={{ padding: "10px 12px" }}>
               {familyBusy ? "Working..." : "Create Family"}
@@ -463,7 +731,7 @@ export default function App() {
                   className={`tabBtn ${activeTab === "summary" ? "tabBtnActive" : ""}`}
                   onClick={() => setActiveTab("summary")}
                 >
-                  Summary
+                  Overview
                 </button>
                 <button
                   type="button"
@@ -478,113 +746,108 @@ export default function App() {
 
               {activeTab === "summary" ? (
                 <>
-                  <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-                  <h2 style={{ marginTop: 0 }}>Summary</h2>
-                  <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-                    <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 4 }}>Unpaid Total</div>
-                      <div style={{ fontWeight: 700 }}>{formatCurrency(unpaidTotal)}</div>
+                  <div className="surfaceCard">
+                    <h2 className="cardHeading">Summary</h2>
+                    <div className="summaryGrid" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                      <div className="summaryMetricCard">
+                        <div className="summaryMetricLabel">Due This Month</div>
+                        <div className="summaryMetricValue">{formatCurrency(dueThisMonthTotal)}</div>
+                      </div>
+                      <div className="summaryMetricCard">
+                        <div className="summaryMetricLabel">Paid This Month</div>
+                        <div className="summaryMetricValue">{formatCurrency(paidThisMonthTotal)}</div>
+                      </div>
+                      <div className="summaryMetricCard">
+                        <div className="summaryMetricLabel">Remaining This Month</div>
+                        <div className="summaryMetricValue">{formatCurrency(remainingThisMonthTotal)}</div>
+                      </div>
                     </div>
-                    <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 4 }}>Paid Total</div>
-                      <div style={{ fontWeight: 700 }}>{formatCurrency(paidTotal)}</div>
-                    </div>
-                    <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 4 }}>Due This Month</div>
-                      <div style={{ fontWeight: 700 }}>{formatCurrency(dueThisMonthTotal)}</div>
-                    </div>
-                    <div style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 4 }}>Overdue Total</div>
-                      <div style={{ fontWeight: 700 }}>{formatCurrency(overdueTotal)}</div>
+                    <div className="summaryMetricCard" style={{ marginTop: 12 }}>
+                      <div className="summaryMetricLabel">Overdue Total</div>
+                      <div className="summaryMetricValue">{formatCurrency(overdueTotal)}</div>
                     </div>
                   </div>
-                </div>
  
-                  <form onSubmit={handleAddBill} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-                  <h2 style={{ marginTop: 0 }}>Add Bill</h2>
-
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Name
-                    <input
-                      value={billName}
-                      onChange={(e) => setBillName(e.target.value)}
-                      required
-                      style={{ width: "100%", padding: 10, marginTop: 6 }}
-                    />
-                  </label>
-
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Bill Type
-                    <select
-                      value={billType}
-                      onChange={(e) => setBillType(e.target.value as "one-time" | "monthly")}
-                      style={{ width: "100%", padding: 10, marginTop: 6 }}
-                    >
-                      <option value="one-time">One-Time</option>
-                      <option value="monthly">Monthly Recurring</option>
-                    </select>
-                  </label>
-
-                  <label style={{ display: "block", marginBottom: 8 }}>
-                    Amount
-                    <input
-                      value={billAmount}
-                      onChange={(e) => setBillAmount(e.target.value)}
-                      type="number"
-                      step="0.01"
-                      required
-                      style={{ width: "100%", padding: 10, marginTop: 6 }}
-                    />
-                  </label>
-
-                  {billType === "one-time" ? (
-                    <label style={{ display: "block", marginBottom: 8 }}>
-                      Due Date (optional)
-                      <input
-                        value={billDueDate}
-                        onChange={(e) => setBillDueDate(e.target.value)}
-                        type="date"
-                        style={{ width: "100%", padding: 10, marginTop: 6 }}
-                      />
-                    </label>
-                  ) : (
-                    <label style={{ display: "block", marginBottom: 8 }}>
-                      Due Day of Month
+                  <div className="surfaceCard billsCard">
+                  <div className="billsHeaderRow">
+                    <h2 className="cardHeading billsTitle">Bills</h2>
+                    <div className="billsHeader">
                       <select
-                        value={billDayOfMonth}
-                        onChange={(e) => setBillDayOfMonth(e.target.value)}
-                        style={{ width: "100%", padding: 10, marginTop: 6 }}
+                        value={billsCategoryFilter}
+                        onChange={(event) => setBillsCategoryFilter(event.target.value)}
+                        className="billsFilterPill"
+                        aria-label="Filter bills by category"
                       >
-                        {Array.from({ length: 31 }, (_, index) => {
-                          const day = index + 1;
-                          return (
-                            <option key={day} value={String(day)}>
-                              {day}
-                            </option>
-                          );
-                        })}
+                        <option value="All">All</option>
+                        {BILL_CATEGORIES.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
                       </select>
-                    </label>
-                  )}
+                      <div className="billsMenuRoot" ref={billsMenuRef}>
+                        <button
+                          type="button"
+                          className="billsMenuButton"
+                          aria-label="Open bills actions"
+                          aria-haspopup="menu"
+                          aria-expanded={isBillsMenuOpen}
+                          onClick={() => setIsBillsMenuOpen((prev) => !prev)}
+                        >
+                          ⋯
+                        </button>
 
-                  {billError && <p style={{ color: "crimson" }}>{billError}</p>}
+                        {isBillsMenuOpen ? (
+                          <div className="billsMenuPopover" role="menu" aria-label="Bills actions menu">
+                            <button type="button" role="menuitem" className="billsMenuItem" onClick={handleOpenAddBillModal}>
+                              Add bill
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="billsMenuItem billsMenuItemDanger"
+                              onClick={handleEnterDeleteMode}
+                            >
+                              Delete bill
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
 
-                  <button disabled={billBusy} style={{ padding: "10px 12px" }}>
-                    {billBusy ? "Saving..." : "Add Bill"}
-                  </button>
-                  </form>
+                  {isDeleteMode ? (
+                    <div className="billsDeleteToolbar" role="toolbar" aria-label="Delete bills toolbar">
+                      <span className="billsDeleteToolbarLabel">Select bills to delete</span>
+                      <div className="billsDeleteToolbarActions">
+                        <button type="button" className="tabBtn" onClick={handleCancelDeleteMode} disabled={deleteBusy}>
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="billsDeleteConfirmBtn"
+                          disabled={selectedBillIds.size === 0 || deleteBusy}
+                          onClick={handleDeleteSelectedBills}
+                        >
+                          {deleteBusy ? "Deleting..." : "Delete Selected"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
 
-                  <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-                  <h2 style={{ marginTop: 0 }}>Bills</h2>
-                  {sortedBills.length === 0 ? (
+                  {visibleBills.length === 0 ? (
                     <p style={{ marginBottom: 0 }}>No bills yet.</p>
                   ) : (
-                    <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 10 }}>
-                      {sortedBills.map((bill) => (
-                        <li key={bill.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: 10 }}>
+                    <ul className="billList">
+                      {visibleBills.map((bill) => (
+                        <li key={bill.id} className="billListItem">
                           {(() => {
                             const derivedStatus = getDerivedStatus(bill);
                             const overdue = isOverdue(bill);
+                            const hasAutopayMeta = bill.autopay === true;
+                            const hasAccountLast4Meta =
+                              typeof bill.accountLast4 === "string" && /^\d{4}$/.test(bill.accountLast4);
+                            const hasMetadata = hasAutopayMeta || hasAccountLast4Meta;
                             const dueText =
                               bill.recurrence === "monthly"
                                 ? `Due day ${bill.dayOfMonth ?? "?"} of each month`
@@ -597,39 +860,59 @@ export default function App() {
                               badgeLabel === "PAID" ? "#0f5132" : badgeLabel === "OVERDUE" ? "#b42318" : "#374151";
 
                             return (
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                                <div>
-                                  <b>{bill.name}</b>
-                                  <div>${bill.amount.toFixed(2)}</div>
-                                  <div style={{ fontSize: 13, color: "#555" }}>{dueText}</div>
-                                </div>
+                              <div className="billRowContainer">
+                                {isDeleteMode ? (
+                                  <label className="billDeleteCheckboxWrap">
+                                    <input
+                                      type="checkbox"
+                                      className="billDeleteCheckbox"
+                                      checked={selectedBillIds.has(bill.id)}
+                                      onChange={(event) => handleDeleteSelectionChange(bill.id, event.target.checked)}
+                                      aria-label={`Select ${bill.name} for deletion`}
+                                    />
+                                  </label>
+                                ) : null}
 
-                                <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
-                                  <span
-                                    style={{
-                                      fontSize: 12,
-                                      fontWeight: 600,
-                                      padding: "4px 8px",
-                                      borderRadius: 999,
-                                      background: badgeBackground,
-                                      color: badgeColor,
-                                    }}
-                                  >
-                                    {badgeLabel}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleToggleBillStatusWithContext(bill, {
-                                        viewedYYYYMM: currentYYYYMM,
-                                        currentStatus: derivedStatus,
-                                      })
-                                    }
-                                    disabled={statusBusyBillId === bill.id}
-                                    style={{ padding: "8px 10px" }}
-                                  >
-                                    {statusBusyBillId === bill.id ? "Saving..." : derivedStatus === "paid" ? "Mark Unpaid" : "Mark Paid"}
-                                  </button>
+                                <div className="billRowMain">
+                                  <div className="billRowDetails">
+                                    <b>{bill.name}</b>
+                                    <div className="billAmount">${bill.amount.toFixed(2)}</div>
+                                    <div className="billDueText">{dueText}</div>
+                                    {hasMetadata ? (
+                                      <div className="billMeta">
+                                        {hasAutopayMeta ? <span className="billMetaTag">Autopay</span> : null}
+                                        {hasAccountLast4Meta ? <span className="billMetaText">••••{bill.accountLast4}</span> : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="billRowActions">
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        padding: "4px 8px",
+                                        borderRadius: 999,
+                                        background: badgeBackground,
+                                        color: badgeColor,
+                                      }}
+                                    >
+                                      {badgeLabel}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      className="billStatusBtn"
+                                      onClick={() =>
+                                        handleToggleBillStatusWithContext(bill, {
+                                          viewedYYYYMM: currentYYYYMM,
+                                          currentStatus: derivedStatus,
+                                        })
+                                      }
+                                      disabled={statusBusyBillId === bill.id || isDeleteMode || deleteBusy}
+                                    >
+                                      {statusBusyBillId === bill.id ? "Saving..." : derivedStatus === "paid" ? "Mark Unpaid" : "Mark Paid"}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -638,6 +921,8 @@ export default function App() {
                       ))}
                     </ul>
                   )}
+
+                  {billError ? <p className="billFormError">{billError}</p> : null}
                   </div>
                 </>
               ) : (
@@ -650,6 +935,54 @@ export default function App() {
               )}
             </section>
           )}
+
+          {isAddBillModalOpen ? (
+            <>
+              <button
+                type="button"
+                className="sheetBackdrop"
+                aria-label="Close add bill form"
+                onClick={() => setIsAddBillModalOpen(false)}
+              />
+              <section className="bottomSheet addBillSheet" role="dialog" aria-modal="true" aria-label="Add bill form">
+                <div className="sheetHandle" aria-hidden="true" />
+                <div className="sheetHeader">
+                  <h3>Add bill</h3>
+                  <button
+                    type="button"
+                    className="sheetToggleBtn"
+                    aria-label="Close add bill form"
+                    onClick={() => setIsAddBillModalOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="addBillSheetBody">
+                  <AddBillForm
+                    billName={billName}
+                    billAmount={billAmount}
+                    billType={billType}
+                    billCategory={billCategory}
+                    billDueDate={billDueDate}
+                    billDayOfMonth={billDayOfMonth}
+                    autopay={autopay}
+                    accountLast4={accountLast4}
+                    billBusy={billBusy}
+                    billError={billError}
+                    onSubmit={handleAddBill}
+                    onBillNameChange={setBillName}
+                    onBillTypeChange={setBillType}
+                    onBillCategoryChange={setBillCategory}
+                    onBillAmountChange={setBillAmount}
+                    onBillDueDateChange={setBillDueDate}
+                    onBillDayOfMonthChange={setBillDayOfMonth}
+                    onAutopayChange={setAutopay}
+                    onAccountLast4Change={setAccountLast4}
+                  />
+                </div>
+              </section>
+            </>
+          ) : null}
         </main>
       </div>
     );
