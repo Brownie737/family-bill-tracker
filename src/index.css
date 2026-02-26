@@ -26,6 +26,437 @@ body {
   background-color: #f8fafc;
 }
 
+.appShell {
+  min-height: 100vh;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100%;
+  padding: 12px 0;
+  border-bottom: 1px solid #dbe3ec;
+  background: rgba(248, 250, 252, 0.95);
+  backdrop-filter: blur(6px);
+}
+
+.topBarInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.appMain {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.dashboardStack {
+  display: grid;
+  gap: 16px;
+}
+
+.tabsBar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #dbe3ec;
+  border-radius: 999px;
+  background: #eef3f8;
+}
+
+.tabBtn {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabBtnActive {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+
+.calendarShell {
+  border: 1px solid #dbe3ec;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.calendarHeader {
+  display: grid;
+  grid-template-columns: 52px 1fr 52px;
+  align-items: center;
+  gap: 8px;
+}
+
+.calendarHeader h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.calendarDowRow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendarDowRow > div {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 600;
+  min-height: 24px;
+}
+
+.calendarGrid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendarCell {
+  min-height: 96px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 6px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendarDayBtn {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.calendarDayBtn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.calendarDayNum {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.billChip {
+  border-radius: 8px;
+  padding: 3px 6px;
+  font-size: 0.68rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chipPaid {
+  background: #e8f5ec;
+  color: #1f5f3d;
+}
+
+.chipUnpaid {
+  background: #eef2f7;
+  color: #334155;
+}
+
+.chipOverdue {
+  background: #fdecec;
+  color: #9f2330;
+}
+
+.topBarTitles {
+  min-width: 0;
+}
+
+.topBarTitle {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.topBarSubtitle {
+  margin: 2px 0 0;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.avatarMenuRoot {
+  position: relative;
+}
+
+.avatarMenuTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid #0f172a;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 10px rgba(2, 6, 23, 0.25);
+  cursor: pointer;
+}
+
+.avatarMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.avatarMenuPanel {
+  position: fixed;
+  top: 68px;
+  right: 12px;
+  left: 12px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 84px);
+  border: 1px solid #dbe3ec;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+
+.avatarMenuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.avatarMenuTitle {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.avatarMenuCloseBtn {
+  width: 40px;
+  min-height: 40px;
+  border: 1px solid #d1d9e3;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.avatarMenuBody {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.avatarMenuSection {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.avatarMenuCopyBtn {
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.avatarMenuCopyBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.avatarMenuNotice {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.avatarMenuFooter {
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.avatarMenuLogoutBtn {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #b91c1c;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sheetBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  border: 0;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.bottomSheet {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: min(640px, 100vw);
+  max-height: 70vh;
+  border-radius: 20px 20px 0 0;
+  border: 1px solid #dbe3ec;
+  background: #ffffff;
+  box-shadow: 0 -8px 30px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sheetHandle {
+  width: 46px;
+  height: 5px;
+  border-radius: 999px;
+  margin: 8px auto;
+  background: #cbd5e1;
+}
+
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.sheetHeader h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.sheetList {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  overflow: auto;
+}
+
+.sheetRow {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.sheetBadge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sheetBadgePaid {
+  background: #e8f5ec;
+  color: #1f5f3d;
+}
+
+.sheetBadgeUnpaid {
+  background: #eef2f7;
+  color: #334155;
+}
+
+.sheetBadgeOverdue {
+  background: #fdecec;
+  color: #9f2330;
+}
+
+.sheetToggleBtn {
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sheetToggleBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+@media (min-width: 768px) {
+  .topBar {
+    padding: 14px 0;
+  }
+
+  .topBarInner {
+    padding: 0 24px;
+  }
+
+  .appMain {
+    padding: 20px 24px 24px;
+  }
+
+  .avatarMenuPanel {
+    top: 74px;
+    left: auto;
+    width: min(420px, calc(100vw - 32px));
+  }
+}
+
 img,
 picture,
 video,
