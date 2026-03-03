@@ -23,6 +23,7 @@ import type { BillCategory, BillListItem } from "./lib/firestore";
 import AvatarMenu from "./components/AvatarMenu";
 import AddBillForm from "./components/AddBillForm";
 import BillsCalendar from "./components/BillsCalendar";
+import BillDetailsModal, { type BillDetailsSaveInput } from "./components/BillDetailsModal";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -57,6 +58,11 @@ export default function App() {
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedBillIds, setSelectedBillIds] = useState<Set<string>>(new Set());
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectedBill, setSelectedBill] = useState<BillListItem | null>(null);
+  const [billModalOpen, setBillModalOpen] = useState(false);
+  const [billModalMode, setBillModalMode] = useState<"view" | "edit">("view");
+  const [billModalBusy, setBillModalBusy] = useState(false);
+  const [billModalError, setBillModalError] = useState<string | null>(null);
   const autopayProcessedKeysRef = useRef<Set<string>>(new Set());
   const billsMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,6 +81,10 @@ export default function App() {
       setIsAddBillModalOpen(false);
       setIsDeleteMode(false);
       setSelectedBillIds(new Set());
+      setSelectedBill(null);
+      setBillModalOpen(false);
+      setBillModalMode("view");
+      setBillModalError(null);
       setBillCategory("Subscriptions");
       return;
     }
@@ -111,6 +121,10 @@ export default function App() {
       setBills([]);
       setIsDeleteMode(false);
       setSelectedBillIds(new Set());
+      setSelectedBill(null);
+      setBillModalOpen(false);
+      setBillModalMode("view");
+      setBillModalError(null);
       return;
     }
 
@@ -147,7 +161,7 @@ export default function App() {
   }, [isBillsMenuOpen]);
 
   useEffect(() => {
-    if (!isBillsMenuOpen && !isAddBillModalOpen) {
+    if (!isBillsMenuOpen && !isAddBillModalOpen && !billModalOpen) {
       return;
     }
 
@@ -158,13 +172,16 @@ export default function App() {
 
       setIsBillsMenuOpen(false);
       setIsAddBillModalOpen(false);
+      setBillModalOpen(false);
+      setBillModalMode("view");
+      setBillModalError(null);
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [isAddBillModalOpen, isBillsMenuOpen]);
+  }, [billModalOpen, isAddBillModalOpen, isBillsMenuOpen]);
 
   useEffect(() => {
     if (activeTab !== "calendar") {
@@ -174,7 +191,27 @@ export default function App() {
     setIsBillsMenuOpen(false);
     setIsDeleteMode(false);
     setSelectedBillIds(new Set());
+    setBillModalOpen(false);
+    setBillModalMode("view");
+    setBillModalError(null);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedBill) {
+      return;
+    }
+
+    const latestSelected = bills.find((bill) => bill.id === selectedBill.id) ?? null;
+    if (!latestSelected) {
+      setSelectedBill(null);
+      setBillModalOpen(false);
+      setBillModalMode("view");
+      setBillModalError(null);
+      return;
+    }
+
+    setSelectedBill(latestSelected);
+  }, [bills, selectedBill]);
 
   useEffect(() => {
     if (selectedBillIds.size === 0) {
@@ -344,6 +381,10 @@ export default function App() {
     setIsBillsMenuOpen(false);
     setIsDeleteMode(false);
     setSelectedBillIds(new Set());
+    setSelectedBill(null);
+    setBillModalOpen(false);
+    setBillModalMode("view");
+    setBillModalError(null);
     setBillCategory("Subscriptions");
     setIsAddBillModalOpen(true);
   }
@@ -353,6 +394,10 @@ export default function App() {
     setIsAddBillModalOpen(false);
     setIsDeleteMode(true);
     setSelectedBillIds(new Set());
+    setSelectedBill(null);
+    setBillModalOpen(false);
+    setBillModalMode("view");
+    setBillModalError(null);
   }
 
   function handleCancelDeleteMode() {
@@ -427,6 +472,110 @@ export default function App() {
       setBillError(message);
     } finally {
       setStatusBusyBillId(null);
+    }
+  }
+
+  function handleOpenBillModal(bill: BillListItem) {
+    if (isDeleteMode) {
+      return;
+    }
+
+    setSelectedBill(bill);
+    setBillModalMode("view");
+    setBillModalError(null);
+    setBillModalOpen(true);
+  }
+
+  function handleCloseBillModal() {
+    setBillModalOpen(false);
+    setBillModalMode("view");
+    setBillModalError(null);
+  }
+
+  function handleEditBillModal() {
+    if (!selectedBill) {
+      return;
+    }
+
+    setBillModalError(null);
+    setBillModalMode("edit");
+  }
+
+  function handleCancelBillEdit() {
+    setBillModalError(null);
+    setBillModalMode("view");
+  }
+
+  async function handleSaveBillDetails(payload: BillDetailsSaveInput) {
+    if (!familyId || !selectedBill) {
+      return;
+    }
+
+    setBillModalError(null);
+    setBillModalBusy(true);
+
+    const billRef = doc(db, "families", familyId, "bills", selectedBill.id);
+    try {
+      if (payload.kind === "one-time") {
+        await updateDoc(billRef, {
+          name: payload.name,
+          amount: payload.amount,
+          dueDate: payload.dueDate || null,
+          status: payload.status,
+          category: payload.category,
+          autopay: payload.autopay,
+          accountLast4: payload.accountLast4,
+          updatedAt: serverTimestamp(),
+        });
+
+        setSelectedBill((prev) =>
+          prev && prev.id === selectedBill.id
+            ? {
+                ...prev,
+                name: payload.name,
+                amount: payload.amount,
+                dueDate: payload.dueDate || null,
+                status: payload.status,
+                category: payload.category,
+                autopay: payload.autopay,
+                accountLast4: payload.accountLast4,
+              }
+            : prev,
+        );
+      } else {
+        await updateDoc(billRef, {
+          name: payload.name,
+          amount: payload.amount,
+          recurrence: "monthly",
+          dayOfMonth: payload.dayOfMonth,
+          category: payload.category,
+          autopay: payload.autopay,
+          accountLast4: payload.accountLast4,
+          updatedAt: serverTimestamp(),
+        });
+
+        setSelectedBill((prev) =>
+          prev && prev.id === selectedBill.id
+            ? {
+                ...prev,
+                name: payload.name,
+                amount: payload.amount,
+                recurrence: "monthly",
+                dayOfMonth: payload.dayOfMonth,
+                category: payload.category,
+                autopay: payload.autopay,
+                accountLast4: payload.accountLast4,
+              }
+            : prev,
+        );
+      }
+
+      setBillModalMode("view");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update bill";
+      setBillModalError(message);
+    } finally {
+      setBillModalBusy(false);
     }
   }
 
@@ -628,7 +777,7 @@ export default function App() {
   });
 
   const visibleBills = sortedBills.filter((bill) => {
-    const cat = bill.category?.trim() ? bill.category : "Uncategorized";
+    const cat = normalizeBillCategory(bill.category, "Other");
     if (billsCategoryFilter !== "All") {
       return cat === billsCategoryFilter;
     }
@@ -686,7 +835,12 @@ export default function App() {
               <h1 className="topBarTitle">Family Bill Tracker</h1>
               <p className="topBarSubtitle">Shared household billing dashboard</p>
             </div>
-            <AvatarMenu email={user.email ?? ""} familyId={familyId ?? ""} onLogout={handleLogout} />
+            <AvatarMenu
+              email={user.email ?? ""}
+              familyId={familyId ?? ""}
+              currentUserUid={user.uid}
+              onLogout={handleLogout}
+            />
           </div>
         </header>
 
@@ -840,7 +994,23 @@ export default function App() {
                   ) : (
                     <ul className="billList">
                       {visibleBills.map((bill) => (
-                        <li key={bill.id} className="billListItem">
+                        <li
+                          key={bill.id}
+                          className={`billListItem ${!isDeleteMode ? "billListItemClickable" : ""}`}
+                          onClick={() => handleOpenBillModal(bill)}
+                          onKeyDown={(event) => {
+                            if (isDeleteMode) {
+                              return;
+                            }
+
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleOpenBillModal(bill);
+                            }
+                          }}
+                          role={isDeleteMode ? undefined : "button"}
+                          tabIndex={isDeleteMode ? undefined : 0}
+                        >
                           {(() => {
                             const derivedStatus = getDerivedStatus(bill);
                             const overdue = isOverdue(bill);
@@ -867,7 +1037,11 @@ export default function App() {
                                       type="checkbox"
                                       className="billDeleteCheckbox"
                                       checked={selectedBillIds.has(bill.id)}
-                                      onChange={(event) => handleDeleteSelectionChange(bill.id, event.target.checked)}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onChange={(event) => {
+                                        event.stopPropagation();
+                                        handleDeleteSelectionChange(bill.id, event.target.checked);
+                                      }}
                                       aria-label={`Select ${bill.name} for deletion`}
                                     />
                                   </label>
@@ -902,12 +1076,13 @@ export default function App() {
                                     <button
                                       type="button"
                                       className="billStatusBtn"
-                                      onClick={() =>
-                                        handleToggleBillStatusWithContext(bill, {
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void handleToggleBillStatusWithContext(bill, {
                                           viewedYYYYMM: currentYYYYMM,
                                           currentStatus: derivedStatus,
-                                        })
-                                      }
+                                        });
+                                      }}
                                       disabled={statusBusyBillId === bill.id || isDeleteMode || deleteBusy}
                                     >
                                       {statusBusyBillId === bill.id ? "Saving..." : derivedStatus === "paid" ? "Mark Unpaid" : "Mark Paid"}
@@ -983,6 +1158,18 @@ export default function App() {
               </section>
             </>
           ) : null}
+
+          <BillDetailsModal
+            open={billModalOpen}
+            bill={selectedBill}
+            mode={billModalMode}
+            saving={billModalBusy}
+            error={billModalError}
+            onClose={handleCloseBillModal}
+            onEdit={handleEditBillModal}
+            onCancelEdit={handleCancelBillEdit}
+            onSaved={handleSaveBillDetails}
+          />
         </main>
       </div>
     );

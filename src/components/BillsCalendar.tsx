@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import BillDetailsModal, { type BillDetailsSaveInput } from "./BillDetailsModal";
+import { db } from "../lib/firebase";
 import type { BillListItem } from "../lib/firestore";
 
 type BillsCalendarProps = {
@@ -12,6 +15,9 @@ type BillsCalendarProps = {
 };
 
 type ChipStatus = "paid" | "unpaid" | "overdue";
+
+const SHEET_CLOSE_DRAG_THRESHOLD = 80;
+const SHEET_CLOSE_VELOCITY_THRESHOLD = 0.6;
 
 type CalendarEvent = {
   billId: string;
@@ -78,11 +84,27 @@ function formatCurrency(amount: number): string {
 }
 
 export default function BillsCalendar({ bills, familyId, statusBusyBillId, onToggleBillStatus }: BillsCalendarProps) {
-  const now = new Date();
-  const today = startOfDay(now);
-  const [viewedMonthDate, setViewedMonthDate] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  const today = new Date();
+  const isToday = (cellDate: Date) =>
+    cellDate.getFullYear() === today.getFullYear() &&
+    cellDate.getMonth() === today.getMonth() &&
+    cellDate.getDate() === today.getDate();
+  const [viewedMonthDate, setViewedMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDayOfMonth, setSelectedDayOfMonth] = useState<number | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [selectedBill, setSelectedBill] = useState<BillListItem | null>(null);
+  const [isBillDetailsOpen, setIsBillDetailsOpen] = useState(false);
+  const [billDetailsMode, setBillDetailsMode] = useState<"view" | "edit">("view");
+  const [billDetailsBusy, setBillDetailsBusy] = useState(false);
+  const [billDetailsError, setBillDetailsError] = useState<string | null>(null);
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const [isSheetDragging, setIsSheetDragging] = useState(false);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragStartYRef = useRef(0);
+  const dragYRef = useRef(0);
+  const dragVelocityRef = useRef(0);
+  const dragLastYRef = useRef(0);
+  const dragLastTimeRef = useRef(0);
 
   const viewedYear = viewedMonthDate.getFullYear();
   const viewedMonth = viewedMonthDate.getMonth();
@@ -123,8 +145,10 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
 
   const eventsByDay = useMemo(() => {
     const events = new Map<number, CalendarEvent[]>();
-    const todayYear = today.getFullYear();
-    const todayMonth = today.getMonth();
+    const todayStart = startOfDay(new Date());
+    const todayYear = todayStart.getFullYear();
+    const todayMonth = todayStart.getMonth();
+    const todayStartTime = todayStart.getTime();
 
     for (const bill of bills) {
       if (bill.recurrence === "monthly") {
@@ -135,7 +159,7 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
 
         const isPaid = bill.paidForMonth === viewedYYYYMM;
         const isFutureMonth = isMonthInFuture(viewedYear, viewedMonth, todayYear, todayMonth);
-        const isOverdue = !isPaid && !isFutureMonth && startOfDay(recurringDueDate).getTime() < today.getTime();
+        const isOverdue = !isPaid && !isFutureMonth && startOfDay(recurringDueDate).getTime() < todayStartTime;
 
         const event: CalendarEvent = {
           billId: bill.id,
@@ -168,7 +192,7 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
       }
 
       const isPaid = bill.status === "paid";
-      const isOverdue = !isPaid && startOfDay(oneTimeDueDate).getTime() < today.getTime();
+      const isOverdue = !isPaid && startOfDay(oneTimeDueDate).getTime() < todayStartTime;
 
       const event: CalendarEvent = {
         billId: bill.id,
@@ -197,7 +221,7 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
     }
 
     return events;
-  }, [bills, today, viewedMonth, viewedYYYYMM, viewedYear]);
+  }, [bills, viewedMonth, viewedYYYYMM, viewedYear]);
 
   const selectedDayEvents = useMemo(() => {
     if (selectedDayOfMonth == null) {
@@ -213,6 +237,173 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
 
   const closeDaySheet = () => {
     setIsSheetOpen(false);
+    setSheetDragY(0);
+    dragYRef.current = 0;
+    setIsSheetDragging(false);
+    dragPointerIdRef.current = null;
+  };
+
+  const openBillDetails = (bill: BillListItem) => {
+    setSelectedBill(bill);
+    setBillDetailsMode("view");
+    setBillDetailsError(null);
+    setIsBillDetailsOpen(true);
+  };
+
+  const closeBillDetails = () => {
+    setIsBillDetailsOpen(false);
+    setBillDetailsMode("view");
+    setBillDetailsError(null);
+  };
+
+  const editBillDetails = () => {
+    if (!selectedBill) {
+      return;
+    }
+
+    setBillDetailsError(null);
+    setBillDetailsMode("edit");
+  };
+
+  const cancelBillDetailsEdit = () => {
+    setBillDetailsError(null);
+    setBillDetailsMode("view");
+  };
+
+  const saveBillDetails = async (payload: BillDetailsSaveInput) => {
+    if (!familyId || !selectedBill) {
+      return;
+    }
+
+    setBillDetailsError(null);
+    setBillDetailsBusy(true);
+
+    const billRef = doc(db, "families", familyId, "bills", selectedBill.id);
+    try {
+      if (payload.kind === "one-time") {
+        await updateDoc(billRef, {
+          name: payload.name,
+          amount: payload.amount,
+          dueDate: payload.dueDate || null,
+          status: payload.status,
+          category: payload.category,
+          autopay: payload.autopay,
+          accountLast4: payload.accountLast4,
+          updatedAt: serverTimestamp(),
+        });
+
+        setSelectedBill((prev) =>
+          prev && prev.id === selectedBill.id
+            ? {
+                ...prev,
+                name: payload.name,
+                amount: payload.amount,
+                dueDate: payload.dueDate || null,
+                status: payload.status,
+                category: payload.category,
+                autopay: payload.autopay,
+                accountLast4: payload.accountLast4,
+              }
+            : prev,
+        );
+      } else {
+        await updateDoc(billRef, {
+          name: payload.name,
+          amount: payload.amount,
+          recurrence: "monthly",
+          dayOfMonth: payload.dayOfMonth,
+          category: payload.category,
+          autopay: payload.autopay,
+          accountLast4: payload.accountLast4,
+          updatedAt: serverTimestamp(),
+        });
+
+        setSelectedBill((prev) =>
+          prev && prev.id === selectedBill.id
+            ? {
+                ...prev,
+                name: payload.name,
+                amount: payload.amount,
+                recurrence: "monthly",
+                dayOfMonth: payload.dayOfMonth,
+                category: payload.category,
+                autopay: payload.autopay,
+                accountLast4: payload.accountLast4,
+              }
+            : prev,
+        );
+      }
+
+      setBillDetailsMode("view");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to update bill";
+      setBillDetailsError(message);
+    } finally {
+      setBillDetailsBusy(false);
+    }
+  };
+
+  const handleSheetHeaderPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest("button, a, input, textarea, select")) {
+      return;
+    }
+
+    dragPointerIdRef.current = event.pointerId;
+    dragStartYRef.current = event.clientY;
+    dragLastYRef.current = event.clientY;
+    dragLastTimeRef.current = event.timeStamp;
+    dragVelocityRef.current = 0;
+    dragYRef.current = 0;
+
+    setSheetDragY(0);
+    setIsSheetDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleSheetHeaderPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSheetDragging || dragPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+
+    const deltaY = event.clientY - dragStartYRef.current;
+    const nextY = deltaY > 0 ? deltaY : 0;
+    const deltaTime = event.timeStamp - dragLastTimeRef.current;
+
+    if (deltaTime > 0) {
+      dragVelocityRef.current = (event.clientY - dragLastYRef.current) / deltaTime;
+    }
+
+    dragLastYRef.current = event.clientY;
+    dragLastTimeRef.current = event.timeStamp;
+    dragYRef.current = nextY;
+    setSheetDragY(nextY);
+  };
+
+  const handleSheetHeaderPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragPointerIdRef.current !== event.pointerId) {
+      return;
+    }
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const shouldClose =
+      dragYRef.current >= SHEET_CLOSE_DRAG_THRESHOLD || dragVelocityRef.current > SHEET_CLOSE_VELOCITY_THRESHOLD;
+
+    setIsSheetDragging(false);
+    setSheetDragY(0);
+    dragYRef.current = 0;
+    dragPointerIdRef.current = null;
+
+    if (shouldClose) {
+      closeDaySheet();
+    }
   };
 
   useEffect(() => {
@@ -231,6 +422,23 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [isSheetOpen]);
+
+  useEffect(() => {
+    if (!selectedBill) {
+      return;
+    }
+
+    const latestSelected = bills.find((bill) => bill.id === selectedBill.id) ?? null;
+    if (!latestSelected) {
+      setSelectedBill(null);
+      setIsBillDetailsOpen(false);
+      setBillDetailsMode("view");
+      setBillDetailsError(null);
+      return;
+    }
+
+    setSelectedBill(latestSelected);
+  }, [bills, selectedBill]);
 
   return (
     <>
@@ -272,38 +480,62 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
             const dayEvents = day == null ? [] : eventsByDay.get(day) ?? [];
             const visibleEvents = dayEvents.slice(0, 3);
             const hiddenCount = Math.max(0, dayEvents.length - visibleEvents.length);
+            const cellDate = day == null ? null : new Date(viewedYear, viewedMonth, day);
+            const isTodayCell =
+              cellDate != null &&
+              cellDate.getFullYear() === viewedYear &&
+              cellDate.getMonth() === viewedMonth &&
+              isToday(cellDate);
+            const todayClass = isTodayCell ? "calendar-day--today" : "";
 
             return (
-              <div key={`${day ?? "blank"}-${index}`} className="calendarCell">
+              <div key={`${day ?? "blank"}-${index}`} className={`calendarCell ${todayClass}`.trim()}>
                 {day != null ? (
                   <button
                     type="button"
                     className="calendarDayBtn"
                     onClick={() => openDaySheet(day)}
-                    aria-label={`Open bills for ${new Date(viewedYear, viewedMonth, day).toLocaleDateString("en-US", {
+                    aria-label={`Open bills for ${cellDate!.toLocaleDateString("en-US", {
                       month: "long",
                       day: "numeric",
                       year: "numeric",
                     })}`}
                   >
-                    <div className="calendarDayNum">{day}</div>
-                    {visibleEvents.map((event) => (
-                      <div
-                        key={`${event.billId}-${event.dayOfMonth}-${event.label}`}
-                        className={`billChip ${
-                          event.status === "paid" ? "chipPaid" : event.status === "overdue" ? "chipOverdue" : "chipUnpaid"
-                        }`}
-                        title={event.label}
-                      >
-                        {event.label}
-                      </div>
-                    ))}
+                    <div className="calendarDayNum">
+                      <span>{day}</span>
+                      {isTodayCell ? <span className="today-dot" aria-label="Today" /> : null}
+                    </div>
+                    {visibleEvents.map((event) => {
+                      const payTypeClass = event.bill.autopay ? "bill-pill--autopay" : "bill-pill--manual";
+                      return (
+                        <div
+                          key={`${event.billId}-${event.dayOfMonth}-${event.label}`}
+                          className={`billChip ${
+                            event.status === "paid" ? "chipPaid" : event.status === "overdue" ? "chipOverdue" : "chipUnpaid"
+                          } ${payTypeClass}`}
+                          title={event.label}
+                        >
+                          {event.label}
+                        </div>
+                      );
+                    })}
                     {hiddenCount > 0 ? <div className="billChip chipUnpaid">+{hiddenCount} more</div> : null}
                   </button>
                 ) : null}
               </div>
             );
           })}
+        </div>
+
+        <div className="calendar-legend" aria-label="Bill type legend">
+          <span className="legend-item">
+            <span className="legend-dot legend-dot--autopay" aria-hidden="true" />
+            Autopay
+          </span>
+          <span className="legend-item">
+            <span className="legend-dot legend-dot--manual" aria-hidden="true" />
+            Manual
+          </span>
         </div>
       </section>
 
@@ -316,19 +548,32 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
             onClick={closeDaySheet}
           />
 
-          <section className="bottomSheet" role="dialog" aria-modal="true" aria-label="Bills for selected day">
-            <div className="sheetHandle" aria-hidden="true" />
-
-            <div className="sheetHeader">
-              <h3>{selectedDateLabel}</h3>
-              <button
-                type="button"
-                className="sheetToggleBtn"
-                aria-label="Close bills drawer"
-                onClick={closeDaySheet}
-              >
-                ✕
-              </button>
+          <section
+            className={`bottomSheet ${isSheetDragging ? "bottomSheet--dragging" : ""}`.trim()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Bills for selected day"
+            style={{ transform: `translate(-50%, ${sheetDragY}px)` }}
+          >
+            <div
+              className={`sheetDragHeader ${isSheetDragging ? "sheetDragHeader--dragging" : ""}`.trim()}
+              onPointerDown={handleSheetHeaderPointerDown}
+              onPointerMove={handleSheetHeaderPointerMove}
+              onPointerUp={handleSheetHeaderPointerUp}
+              onPointerCancel={handleSheetHeaderPointerUp}
+            >
+              <div className="sheetHandle" aria-hidden="true" />
+              <div className="sheetHeader">
+                <h3>{selectedDateLabel}</h3>
+                <button
+                  type="button"
+                  className="sheetToggleBtn"
+                  aria-label="Close bills drawer"
+                  onClick={closeDaySheet}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             <ul className="sheetList">
@@ -348,7 +593,19 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
                     typeof event.bill.accountLast4 === "string" && /^\d{4}$/.test(event.bill.accountLast4);
                   const hasMetadata = hasAutopayMeta || hasAccountLast4Meta;
                   return (
-                    <li key={`${event.billId}-${event.dayOfMonth}-${event.label}`} className="sheetRow">
+                    <li
+                      key={`${event.billId}-${event.dayOfMonth}-${event.label}`}
+                      className="sheetRow sheetRowClickable"
+                      onClick={() => openBillDetails(event.bill)}
+                      onKeyDown={(keyEvent) => {
+                        if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                          keyEvent.preventDefault();
+                          openBillDetails(event.bill);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                    >
                       <div>
                         <div style={{ fontWeight: 700 }}>{event.name}</div>
                         <div style={{ fontSize: "0.92rem", color: "#334155" }}>{formatCurrency(event.amount)}</div>
@@ -377,12 +634,16 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
                           type="button"
                           className="sheetToggleBtn"
                           disabled={isBusy || !familyId}
-                          onClick={() =>
-                            onToggleBillStatus(event.bill, {
+                          onClick={(clickEvent) => {
+                            clickEvent.stopPropagation();
+                            void onToggleBillStatus(event.bill, {
                               viewedYYYYMM,
                               currentStatus: event.status,
-                            })
-                          }
+                            });
+                          }}
+                          onKeyDown={(keyEvent) => {
+                            keyEvent.stopPropagation();
+                          }}
                           aria-label={`${nextActionLabel} for ${event.name}`}
                         >
                           {isBusy ? "Saving..." : nextActionLabel}
@@ -396,6 +657,18 @@ export default function BillsCalendar({ bills, familyId, statusBusyBillId, onTog
           </section>
         </>
       ) : null}
+
+      <BillDetailsModal
+        open={isBillDetailsOpen}
+        bill={selectedBill}
+        mode={billDetailsMode}
+        saving={billDetailsBusy}
+        error={billDetailsError}
+        onClose={closeBillDetails}
+        onEdit={editBillDetails}
+        onCancelEdit={cancelBillDetailsEdit}
+        onSaved={saveBillDetails}
+      />
     </>
   );
 }

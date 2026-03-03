@@ -3,6 +3,7 @@ import { BILL_CATEGORIES } from "../lib/firestore";
 import type { BillCategory } from "../lib/firestore";
 
 type AddBillFormProps = {
+  mode?: "add" | "edit";
   billName: string;
   billAmount: string;
   billType: "one-time" | "monthly";
@@ -22,9 +23,13 @@ type AddBillFormProps = {
   onBillDayOfMonthChange: (value: string) => void;
   onAutopayChange: (value: boolean) => void;
   onAccountLast4Change: (value: string) => void;
+  onCancel?: () => void;
+  submitLabel?: string;
+  cancelLabel?: string;
 };
 
 export default function AddBillForm({
+  mode = "add",
   billName,
   billAmount,
   billType,
@@ -44,7 +49,12 @@ export default function AddBillForm({
   onBillDayOfMonthChange,
   onAutopayChange,
   onAccountLast4Change,
+  onCancel,
+  submitLabel,
+  cancelLabel,
 }: AddBillFormProps) {
+  const isEditMode = mode === "edit";
+
   return (
     <form onSubmit={onSubmit} className="addBillForm">
       <label className="billFormFieldLabel">
@@ -63,6 +73,7 @@ export default function AddBillForm({
           value={billType}
           onChange={(event) => onBillTypeChange(event.target.value as "one-time" | "monthly")}
           className="billFormInput"
+          disabled={isEditMode}
         >
           <option value="one-time">One-Time</option>
           <option value="monthly">Monthly Recurring</option>
@@ -158,9 +169,16 @@ export default function AddBillForm({
 
       {billError ? <p className="billFormError">{billError}</p> : null}
 
-      <button type="submit" disabled={billBusy} className="billFormSubmitBtn">
-        {billBusy ? "Saving..." : "Add Bill"}
-      </button>
+      <div className="billFormActionRow">
+        <button type="submit" disabled={billBusy} className="billFormSubmitBtn">
+          {billBusy ? "Saving..." : (submitLabel ?? (isEditMode ? "Save Changes" : "Add Bill"))}
+        </button>
+        {isEditMode && onCancel ? (
+          <button type="button" onClick={onCancel} className="sheetToggleBtn" disabled={billBusy}>
+            {cancelLabel ?? "Cancel"}
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }

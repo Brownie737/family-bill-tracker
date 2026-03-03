@@ -23,17 +23,21 @@ export const BILL_CATEGORIES = [
   "Housing",
   "Insurance",
   "Debt",
+  "Vehicles",
   "Other",
-  "Uncategorized",
 ] as const;
 
 export type BillCategory = (typeof BILL_CATEGORIES)[number];
 
 export function normalizeBillCategory(
   category: string | null | undefined,
-  fallback: BillCategory = "Uncategorized",
+  fallback: BillCategory = "Other",
 ): BillCategory {
   const trimmedCategory = typeof category === "string" ? category.trim() : "";
+  if (trimmedCategory === "Uncategorized") {
+    return "Other";
+  }
+
   if ((BILL_CATEGORIES as readonly string[]).includes(trimmedCategory)) {
     return trimmedCategory as BillCategory;
   }
@@ -89,36 +93,17 @@ function getCurrentYYYYMM(date = new Date()): string {
 export async function ensureUserDoc(uid: string, email: string | null) {
   const userRef = doc(db, "users", uid);
   const snap = await getDoc(userRef);
-
-  if (!snap.exists()) {
-    await setDoc(
-      userRef,
-      {
-        email,
-        createdAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    return;
-  }
-
-  const data = snap.data() as { createdAt?: unknown };
-  if (data.createdAt == null) {
-    await setDoc(
-      userRef,
-      {
-        email,
-        createdAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    return;
-  }
+  const data = snap.exists() ? (snap.data() as { createdAt?: unknown; familyId?: unknown }) : null;
+  const existingFamilyId =
+    typeof data?.familyId === "string" || data?.familyId === null ? data.familyId : null;
 
   await setDoc(
     userRef,
     {
       email,
+      familyId: existingFamilyId,
+      createdAt: data?.createdAt == null ? serverTimestamp() : data.createdAt,
+      updatedAt: serverTimestamp(),
     },
     { merge: true },
   );
@@ -295,7 +280,7 @@ export function listenToBills(familyId: string, onChange: (bills: BillListItem[]
       const paidForMonth = typeof rawPaidForMonth === "string" || rawPaidForMonth === null ? rawPaidForMonth : null;
       const autopay = typeof rawAutopay === "boolean" ? rawAutopay : undefined;
       const accountLast4 = typeof rawAccountLast4 === "string" && /^\d{4}$/.test(rawAccountLast4) ? rawAccountLast4 : null;
-      const category = normalizeBillCategory(typeof rawCategory === "string" ? rawCategory : null, "Uncategorized");
+      const category = normalizeBillCategory(typeof rawCategory === "string" ? rawCategory : null, "Other");
 
       return {
         id: billDoc.id,
