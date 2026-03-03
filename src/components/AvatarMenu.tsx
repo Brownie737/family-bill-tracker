@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { collection, doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 type AvatarMenuProps = {
@@ -11,13 +11,15 @@ type AvatarMenuProps = {
 
 type FamilyMember = {
   uid: string;
-  email: string;
+  email?: string;
+  role?: string;
 };
 
 export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }: AvatarMenuProps) {
   const [open, setOpen] = useState(false);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [familyMembersCount, setFamilyMembersCount] = useState(0);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -79,13 +81,12 @@ export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }
   useEffect(() => {
     if (!normalizedFamilyId) {
       setFamilyMembers([]);
+      setFamilyMembersCount(0);
       setIsLoadingMembers(false);
       setMembersError(null);
       return;
     }
 
-    let active = true;
-    let snapshotVersion = 0;
     setIsLoadingMembers(true);
     setMembersError(null);
 
@@ -93,77 +94,40 @@ export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }
     const unsub = onSnapshot(
       membersRef,
       (membersSnap) => {
-        const currentVersion = ++snapshotVersion;
-        setIsLoadingMembers(true);
         setMembersError(null);
+        setFamilyMembersCount(membersSnap.size);
 
-        void (async () => {
-          const memberUids = membersSnap.docs.map((memberDoc) => memberDoc.id);
-          console.log("[AvatarMenu] family members snapshot", {
-            familyId: normalizedFamilyId,
-            memberCount: memberUids.length,
-          });
+        const nextMembers = membersSnap.docs.map((memberDoc) => {
+          const memberData = memberDoc.data() as { email?: string; role?: string };
 
-          if (memberUids.length === 0) {
-            if (!active || currentVersion !== snapshotVersion) {
-              return;
-            }
-
-            setFamilyMembers([]);
-            setIsLoadingMembers(false);
-            return;
-          }
-
-          const userSnapshots = await Promise.all(memberUids.map((uid) => getDoc(doc(db, "users", uid))));
-
-          const nextMembers = memberUids.map((uid, index) => {
-            const userSnap = userSnapshots[index];
-            const userData = userSnap.exists() ? userSnap.data() : null;
-            const rawEmail = userData?.email;
-            const memberEmail =
-              typeof rawEmail === "string" && rawEmail.trim().length > 0 ? rawEmail.trim() : "No email available";
-
-            return {
-              uid,
-              email: memberEmail,
-            };
-          });
-
-          nextMembers.sort((a, b) => {
-            const aIsCurrent = a.uid === currentUserUid;
-            const bIsCurrent = b.uid === currentUserUid;
-
-            if (aIsCurrent && !bIsCurrent) {
-              return -1;
-            }
-
-            if (!aIsCurrent && bIsCurrent) {
-              return 1;
-            }
-
-            return a.email.localeCompare(b.email, undefined, { sensitivity: "base" });
-          });
-
-          if (!active || currentVersion !== snapshotVersion) {
-            return;
-          }
-
-          setFamilyMembers(nextMembers);
-          setIsLoadingMembers(false);
-        })().catch(() => {
-          if (!active || currentVersion !== snapshotVersion) {
-            return;
-          }
-
-          setFamilyMembers([]);
-          setIsLoadingMembers(false);
+          return {
+            uid: memberDoc.id,
+            email: memberData.email,
+            role: memberData.role,
+          };
         });
+
+        nextMembers.sort((a, b) => {
+          const aIsCurrent = a.uid === currentUserUid;
+          const bIsCurrent = b.uid === currentUserUid;
+
+          if (aIsCurrent && !bIsCurrent) {
+            return -1;
+          }
+
+          if (!aIsCurrent && bIsCurrent) {
+            return 1;
+          }
+
+          const aEmail = typeof a.email === "string" ? a.email : "";
+          const bEmail = typeof b.email === "string" ? b.email : "";
+          return aEmail.localeCompare(bEmail, undefined, { sensitivity: "base" });
+        });
+
+        setFamilyMembers(nextMembers);
+        setIsLoadingMembers(false);
       },
       (error) => {
-        if (!active) {
-          return;
-        }
-
         console.error("[AvatarMenu] Failed to subscribe to family members", {
           code: error.code,
           details: error.message,
@@ -171,13 +135,13 @@ export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }
         });
 
         setFamilyMembers([]);
+        setFamilyMembersCount(0);
         setIsLoadingMembers(false);
         setMembersError("Unable to load family members.");
       },
     );
 
     return () => {
-      active = false;
       unsub();
     };
   }, [currentUserUid, normalizedFamilyId]);
@@ -255,7 +219,7 @@ export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }
 
               <div className="avatarMenuSection">
                 <p className="avatarMenuMembersTitle">
-                  <strong>Family Members ({familyMembers.length})</strong>
+                  <strong>Family Members ({familyMembersCount})</strong>
                 </p>
 
                 {isLoadingMembers ? (
@@ -268,7 +232,9 @@ export default function AvatarMenu({ email, familyId, currentUserUid, onLogout }
                   <ul className="avatarMenuMembersList">
                     {familyMembers.map((member) => (
                       <li key={member.uid} className="avatarMenuMembersItem">
-                        {member.email}
+                        {typeof member.email === "string" && member.email.trim().length > 0
+                          ? member.email.trim()
+                          : "No email available"}
                         {member.uid === currentUserUid ? " (You)" : ""}
                       </li>
                     ))}
